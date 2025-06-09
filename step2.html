@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+  <head>
+    <meta charset="UTF-8" />
+    <title>情绪地图操作</title>
+    <style>
+      body {
+        font-family: unset;
+        text-align: center;
+        touch-action: none;
+        margin-top: 30px;
+        padding-top: 100px;
+        background: url("./assets/2ndBg.png") no-repeat;
+        background-size: cover;
+        overflow: hidden;
+      }
+      #gridContainer {
+        display: inline-block;
+        position: relative;
+        margin-bottom: 30px;
+        touch-action: none;
+      }
+      #emotionGrid {
+        outline-width: 3px;
+        outline-color: #000;
+        outline-style: solid;
+        background: #fff;
+        width: 450px;
+        height: 450px;
+        display: block;
+        touch-action: none;
+      }
+      .color-blocks {
+        margin-top: 30px;
+        display: flex;
+        justify-content: center;
+        gap: 30px;
+      }
+      .color-block {
+        width: 50px;
+        height: 50px;
+        cursor: grab;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        color: #fff;
+        font-size: 1.2em;
+        user-select: none;
+        touch-action: manipulation;
+      }
+      .red {
+        background: #e74c3c;
+      }
+      .yellow {
+        background: #f1c40f;
+      }
+      .blue {
+        background: #3498db;
+      }
+      .black {
+        background: #222;
+      }
+      .red,
+      .black,
+      .blue,
+      .yellow {
+        outline-style: solid;
+        outline-width: 2px;
+        outline-color: #222;
+        border: 2px solid #000;
+        box-sizing: border-box;
+      }
+      #backBtn {
+        position: absolute;
+        left: 30px;
+        top: 30px;
+        font-size: 1.5em;
+        cursor: pointer;
+      }
+      .selected-block {
+        outline: 3px dashed #666;
+        z-index: 2;
+      }
+      #confirmModal {
+        display: none;
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.3);
+        justify-content: center;
+        align-items: center;
+        z-index: 10;
+      }
+      #confirmBox {
+        background: #fff;
+        padding: 30px 40px;
+        text-align: center;
+        min-width: 260px;
+      }
+      #confirmBox button {
+        margin: 0 18px;
+        padding: 8px 28px;
+        font-size: 1.1em;
+        border-radius: 6px;
+        border: none;
+        cursor: pointer;
+      }
+      #confirmBox .yes {
+        background: #3498db;
+        color: #fff;
+      }
+      #confirmBox .no {
+        background: #eee;
+        color: #333;
+      }
+    </style>
+  </head>
+  <script src="./assets/axios.min.js"></script>
+  <body>
+    <span id="backBtn" onclick="location.href='index.html'"
+      >&#8592; 返回主页</span
+    >
+    <h2>长按并拖动色块到网格中</h2>
+    <div id="gridContainer" style="position: relative">
+      <canvas id="emotionGrid" width="450" height="450"></canvas>
+      <!-- 动态插入色块div -->
+    </div>
+    <div class="color-blocks" id="colorBlocks">
+      <div class="color-block red" draggable="true" data-color="red"></div>
+      <div
+        class="color-block yellow"
+        draggable="true"
+        data-color="yellow"
+      ></div>
+      <div class="color-block blue" draggable="true" data-color="blue"></div>
+      <div class="color-block black" draggable="true" data-color="black"></div>
+    </div>
+    <div id="confirmModal">
+      <div id="confirmBox">
+        <div style="margin-bottom: 18px; font-size: 1.1em">
+          是否确定生成情绪地图？
+        </div>
+        <button type="button" class="yes" id="btnYes">是</button>
+        <button type="button" class="no" id="btnNo">否</button>
+      </div>
+    </div>
+    <!-- 新增：底部生成情绪地图按钮，初始隐藏 -->
+    <div id="genMapBtnWrap" style="display: none; margin-top: 10px">
+      <div
+        type="button"
+        id="genMapBtn"
+        style="
+          padding: 14px 38px;
+          font-size: 1.3em;
+          border-radius: 8px;
+          background: #3498db;
+          color: #fff;
+          border: none;
+          cursor: pointer;
+        "
+      >
+        生成情绪地图
+      </div>
+    </div>
+    <div id="submitWrap" style="display: none; margin-top: 10px">
+      <div
+        type="button"
+        id="submitBtn"
+        style="
+          padding: 14px 38px;
+          font-size: 1.3em;
+          border-radius: 8px;
+          background: #3498db;
+          color: #fff;
+          border: none;
+          cursor: pointer;
+        "
+      >
+        提交数据并返回
+      </div>
+    </div>
+    <script>
+      // 绘制9x9网格
+      const canvas = document.getElementById("emotionGrid")
+      const ctx = canvas.getContext("2d")
+      const gridSize = 9
+      const cellSize = 50
+      const gridPx = gridSize * cellSize
+      const gridContainer = document.getElementById("gridContainer")
+      let draggingColor = null
+      let dragOffset = { x: 0, y: 0 }
+      let colorMap = {
+        red: "#e74c3c",
+        yellow: "#f1c40f",
+        blue: "#3498db",
+        black: "#222",
+      }
+      let placedBlocks = [] // {color, x, y, w, h, el}
+      let selectedBlock = null
+      let pointerStartDist = 0
+      let pointerStartRect = null
+      // 标记情绪地图是否已生成
+      let emotionMapLocked = false
+      // 新增：全局对象变量，存储网格中所有色块的位置和大小信息
+      // 结构：{ [id]: { x, y, w, h, color } }
+      let gridBlockInfo = {}
+      // 动态计算cellSize以适配不同屏幕
+      function getCellSize() {
+        return Math.floor(canvas.offsetWidth / 9)
+      }
+      function getGridPx() {
+        return getCellSize() * 9
+      }
+      function drawGrid(opacity = 0.15) {
+        ctx.clearRect(0, 0, gridPx, gridPx)
+        // 外边框
+        ctx.save()
+        // ctx.strokeStyle = "#333"
+        // ctx.lineWidth = 3
+        ctx.strokeRect(0, 0, gridPx, gridPx)
+        ctx.restore()
+        // 内部虚线
+        ctx.save()
+        ctx.globalAlpha = opacity
+        ctx.strokeStyle = "#333"
+        ctx.setLineDash([8, 8])
+        ctx.lineWidth = 1
+        for (let i = 1; i < gridSize; i++) {
+          // 竖线
+          ctx.beginPath()
+          ctx.moveTo(i * cellSize, 0)
+          ctx.lineTo(i * cellSize, gridPx)
+          ctx.stroke()
+          // 横线
+          ctx.beginPath()
+          ctx.moveTo(0, i * cellSize)
+          ctx.lineTo(gridPx, i * cellSize)
+          ctx.stroke()
+        }
+        ctx.setLineDash([])
+        ctx.restore()
+      }
+      drawGrid()
+
+      // 拖拽色块逻辑
+      document.querySelectorAll(".color-block").forEach(block => {
+        block.addEventListener("dragstart", e => {
+          draggingColor = block.dataset.color
+          // 关键：设置dataTransfer内容，确保所有浏览器都能触发drop
+          e.dataTransfer.setData("text/plain", draggingColor)
+          drawGrid(0.85) // 拖动时虚线变深
+        })
+        // 移除dragend中的drawGrid(0.15)
+      })
+
+      // 拖拽到canvas
+      canvas.addEventListener("dragover", e => {
+        e.preventDefault()
+        if (draggingColor) {
+          drawGrid(0.85) // 拖动经过canvas时保持高透明度
+        }
+      })
+      canvas.addEventListener("dragleave", e => {
+        // 拖出canvas时恢复透明度
+        if (draggingColor) {
+          drawGrid(0.15)
+        }
+      })
+      canvas.addEventListener("drop", e => {
+        e.preventDefault()
+        if (!draggingColor) return
+        const rect = canvas.getBoundingClientRect()
+        let x = e.clientX - rect.left
+        let y = e.clientY - rect.top
+        // 贴合网格
+        let gx = Math.max(
+          0,
+          Math.min(Math.floor(x / cellSize) * cellSize, gridPx - cellSize)
+        )
+        let gy = Math.max(
+          0,
+          Math.min(Math.floor(y / cellSize) * cellSize, gridPx - cellSize)
+        )
+        // 创建色块div
+        let blockDiv = document.createElement("div")
+        blockDiv.className = `color-block ${draggingColor}`
+        blockDiv.style.position = "absolute"
+        blockDiv.style.left = gx + "px"
+        blockDiv.style.top = gy + "px"
+        blockDiv.style.width = cellSize + "px"
+        blockDiv.style.height = cellSize + "px"
+        blockDiv.style.zIndex = 1
+        blockDiv.innerText = blockLabel(draggingColor)
+        blockDiv.setAttribute("data-color", draggingColor)
+        blockDiv.setAttribute("tabindex", 0)
+        gridContainer.appendChild(blockDiv)
+        placedBlocks.push({
+          color: draggingColor,
+          x: gx,
+          y: gy,
+          w: cellSize,
+          h: cellSize,
+          el: blockDiv,
+        })
+        // 放置后移除下方色块（确保无论如何都隐藏）
+        let colorBlock = document.querySelector(
+          `.color-blocks .color-block[data-color="${draggingColor}"]`
+        )
+        if (colorBlock && colorBlock.style.display !== "none") {
+          colorBlock.style.display = "none"
+        }
+        // 记录到gridBlockInfo，修正color为draggingColor
+        const blockId = generateBlockId()
+        blockDiv.dataset.blockId = blockId
+        gridBlockInfo[blockId] = {
+          x: gx,
+          y: gy,
+          w: cellSize,
+          h: cellSize,
+          color: draggingColor,
+        }
+        draggingColor = null
+        drawGrid(0.15) // 放下后恢复透明度
+        // 绑定拖动和缩放事件
+        enableBlockInteraction(blockDiv)
+        // 支持鼠标双击放大
+        blockDiv.addEventListener("dblclick", function () {
+          if (emotionMapLocked) return
+          const cellSize = getCellSize()
+          const gridPx = getGridPx()
+          let curW = parseInt(blockDiv.style.width)
+          let curH = parseInt(blockDiv.style.height)
+          let left = parseInt(blockDiv.style.left)
+          let top = parseInt(blockDiv.style.top)
+          let targetW = curW + cellSize
+          let targetH = curH + cellSize
+          if (left + targetW > gridPx) targetW = gridPx - left
+          if (top + targetH > gridPx) targetH = gridPx - top
+          targetW = Math.round(targetW / cellSize) * cellSize
+          targetH = Math.round(targetH / cellSize) * cellSize
+          blockDiv.style.width = targetW + "px"
+          blockDiv.style.height = targetH + "px"
+          let pb = placedBlocks.find(b => b.el === blockDiv)
+          pb.w = targetW
+          pb.h = targetH
+          if (blockDiv.dataset.blockId) {
+            gridBlockInfo[blockDiv.dataset.blockId].w = targetW
+            gridBlockInfo[blockDiv.dataset.blockId].h = targetH
+          }
+        })
+
+        // 新增：支持手指双击放大（移动端）
+        let lastTap = 0
+        blockDiv.addEventListener("touchend", function (e) {
+          if (emotionMapLocked) return
+          const now = Date.now()
+          if (now - lastTap < 350) {
+            // 认为是双击
+            const cellSize = getCellSize()
+            const gridPx = getGridPx()
+            let curW = parseInt(blockDiv.style.width)
+            let curH = parseInt(blockDiv.style.height)
+            let left = parseInt(blockDiv.style.left)
+            let top = parseInt(blockDiv.style.top)
+            let targetW = curW + cellSize
+            let targetH = curH + cellSize
+            if (left + targetW > gridPx) targetW = gridPx - left
+            if (top + targetH > gridPx) targetH = gridPx - top
+            targetW = Math.round(targetW / cellSize) * cellSize
+            targetH = Math.round(targetH / cellSize) * cellSize
+            blockDiv.style.width = targetW + "px"
+            blockDiv.style.height = targetH + "px"
+            let pb = placedBlocks.find(b => b.el === blockDiv)
+            pb.w = targetW
+            pb.h = targetH
+            if (blockDiv.dataset.blockId) {
+              gridBlockInfo[blockDiv.dataset.blockId].w = targetW
+              gridBlockInfo[blockDiv.dataset.blockId].h = targetH
+            }
+            e.preventDefault()
+          }
+          lastTap = now
+        })
+
+        // 检查是否全部色块已用完
+        if (checkAllBlocksPlaced() && !confirmModalShown) {
+          setTimeout(showConfirmModal, 300)
+        }
+      })
+
+      // 点击canvas小网格填充色块时也要保证color有效
+      canvas.addEventListener("click", function (e) {
+        const rect = canvas.getBoundingClientRect()
+        let x = e.clientX - rect.left
+        let y = e.clientY - rect.top
+        const cellSize = getCellSize()
+        const gridPx = getGridPx()
+        let gx = Math.max(
+          0,
+          Math.min(Math.floor(x / cellSize) * cellSize, gridPx - cellSize)
+        )
+        let gy = Math.max(
+          0,
+          Math.min(Math.floor(y / cellSize) * cellSize, gridPx - cellSize)
+        )
+        // 需要有selectedColor变量，假设你有全局selectedColor
+        if (!window.selectedColor) return
+        let blockDiv = document.createElement("div")
+        blockDiv.className = `color-block ${window.selectedColor}`
+        blockDiv.style.position = "absolute"
+        blockDiv.style.left = gx + "px"
+        blockDiv.style.top = gy + "px"
+        blockDiv.style.width = cellSize + "px"
+        blockDiv.style.height = cellSize + "px"
+        blockDiv.style.zIndex = 1
+        blockDiv.innerText = blockLabel(window.selectedColor)
+        blockDiv.setAttribute("data-color", window.selectedColor)
+        blockDiv.setAttribute("tabindex", 0)
+        gridContainer.appendChild(blockDiv)
+        placedBlocks.push({
+          color: window.selectedColor,
+          x: gx,
+          y: gy,
+          w: cellSize,
+          h: cellSize,
+          el: blockDiv,
+        })
+
+        // 记录到gridBlockInfo，修正color为selectedColor
+        const blockId = generateBlockId()
+        blockDiv.dataset.blockId = blockId
+        gridBlockInfo[blockId] = {
+          x: gx,
+          y: gy,
+          w: cellSize,
+          h: cellSize,
+          color: window.selectedColor,
+        }
+
+        // 填充后隐藏下方色块
+        let colorBlock = document.querySelector(
+          `.color-blocks .color-block[data-color="${window.selectedColor}"]`
+        )
+        if (colorBlock && colorBlock.style.display !== "none") {
+          colorBlock.style.display = "none"
+        }
+        // 取消选中
+        window.selectedColor = null
+        document
+          .querySelectorAll(".color-block")
+          .forEach(b => b.classList.remove("selected-block"))
+
+        // 检查是否全部色块已用完
+        if (checkAllBlocksPlaced() && !confirmModalShown) {
+          setTimeout(showConfirmModal, 300)
+        }
+      })
+
+      function blockLabel(color) {
+        switch (color) {
+          case "red":
+            return ""
+          case "yellow":
+            return ""
+          case "blue":
+            return ""
+          case "black":
+            return ""
+        }
+        return ""
+      }
+
+      // 允许色块拖动和缩放
+      function enableBlockInteraction(blockDiv) {
+        let dragging = false,
+          resizing = false,
+          startX,
+          startY,
+          startLeft,
+          startTop,
+          startW,
+          startH
+
+        // 鼠标/手指拖动
+        blockDiv.addEventListener("pointerdown", e => {
+          if (emotionMapLocked) return // 禁止拖动
+          e.preventDefault()
+          selectedBlock && selectedBlock.classList.remove("selected-block")
+          selectedBlock = blockDiv
+          blockDiv.classList.add("selected-block")
+          dragging = true
+          startX = e.clientX
+          startY = e.clientY
+          startLeft = parseInt(blockDiv.style.left)
+          startTop = parseInt(blockDiv.style.top)
+          startW = parseInt(blockDiv.style.width)
+          startH = parseInt(blockDiv.style.height)
+          blockDiv.setPointerCapture(e.pointerId)
+        })
+        blockDiv.addEventListener("pointermove", e => {
+          if (emotionMapLocked) return // 禁止拖动
+          if (!dragging) return
+          let dx = e.clientX - startX
+          let dy = e.clientY - startY
+          let newLeft = Math.round((startLeft + dx) / cellSize) * cellSize
+          let newTop = Math.round((startTop + dy) / cellSize) * cellSize
+          // 限制在网格内
+          newLeft = Math.max(
+            0,
+            Math.min(newLeft, gridPx - parseInt(blockDiv.style.width))
+          )
+          newTop = Math.max(
+            0,
+            Math.min(newTop, gridPx - parseInt(blockDiv.style.height))
+          )
+          blockDiv.style.left = newLeft + "px"
+          blockDiv.style.top = newTop + "px"
+          // 更新placedBlocks
+          let pb = placedBlocks.find(b => b.el === blockDiv)
+          pb.x = newLeft
+          pb.y = newTop
+          // 新增：同步更新gridBlockInfo
+          if (blockDiv.dataset.blockId) {
+            gridBlockInfo[blockDiv.dataset.blockId].x = newLeft
+            gridBlockInfo[blockDiv.dataset.blockId].y = newTop
+          }
+          // // 拖动后触发提示
+          // if (checkAllBlocksPlaced() && !confirmModalShown) {
+          //   setTimeout(showConfirmModal, 300)
+          // }
+        })
+        blockDiv.addEventListener("pointerup", e => {
+          if (emotionMapLocked) return
+          dragging = false
+        })
+
+        // 缩放（PC端用滚轮，移动端用双指）
+        blockDiv.addEventListener("wheel", e => {
+          if (emotionMapLocked) return // 禁止缩放
+          e.preventDefault()
+          let delta = e.deltaY < 0 ? 1 : -1
+          resizeBlock(blockDiv, delta)
+          // // 缩放后触发提示
+          // if (checkAllBlocksPlaced() && !confirmModalShown) {
+          //   setTimeout(showConfirmModal, 300)
+          // }
+        })
+        // 移动端双指缩放
+        let pointers = []
+        blockDiv.addEventListener(
+          "touchstart",
+          e => {
+            if (emotionMapLocked) return // 禁止缩放
+            if (e.touches.length === 2) {
+              pointerStartDist = getTouchDist(e.touches[0], e.touches[1])
+              pointerStartRect = {
+                w: parseInt(blockDiv.style.width),
+                h: parseInt(blockDiv.style.height),
+              }
+            }
+          },
+          { passive: false }
+        )
+        blockDiv.addEventListener(
+          "touchmove",
+          e => {
+            if (emotionMapLocked) return // 禁止缩放
+            if (e.touches.length === 2) {
+              e.preventDefault()
+              let dist = getTouchDist(e.touches[0], e.touches[1])
+              let scale = dist / pointerStartDist
+              let newW =
+                Math.round((pointerStartRect.w * scale) / cellSize) * cellSize
+              let newH =
+                Math.round((pointerStartRect.h * scale) / cellSize) * cellSize
+              resizeBlock(blockDiv, 0, newW, newH)
+              // // 缩放后触发提示
+              // if (checkAllBlocksPlaced() && !confirmModalShown) {
+              //   setTimeout(showConfirmModal, 300)
+              // }
+            }
+          },
+          { passive: false }
+        )
+      }
+
+      function getTouchDist(t1, t2) {
+        let dx = t1.clientX - t2.clientX
+        let dy = t1.clientY - t2.clientY
+        return Math.sqrt(dx * dx + dy * dy)
+      }
+
+      // 缩放色块，delta为1放大，-1缩小，或直接指定新宽高
+      function resizeBlock(blockDiv, delta, newW, newH) {
+        let curW = parseInt(blockDiv.style.width)
+        let curH = parseInt(blockDiv.style.height)
+        let left = parseInt(blockDiv.style.left)
+        let top = parseInt(blockDiv.style.top)
+        // 新增：缩放时移除下方色块
+        let color = blockDiv.getAttribute("data-color")
+        let colorBlock = document.querySelector(
+          `.color-blocks .color-block[data-color="${color}"]`
+        )
+        if (colorBlock && colorBlock.style.display !== "none") {
+          colorBlock.style.display = "none"
+        }
+        if (typeof newW === "undefined") {
+          let targetW = Math.max(
+            cellSize,
+            Math.min(curW + delta * cellSize, gridPx)
+          )
+          let targetH = Math.max(
+            cellSize,
+            Math.min(curH + delta * cellSize, gridPx)
+          )
+          // 保证不超出边界
+          if (left + targetW > gridPx) targetW = gridPx - left
+          if (top + targetH > gridPx) targetH = gridPx - top
+          // 贴合网格
+          targetW = Math.round(targetW / cellSize) * cellSize
+          targetH = Math.round(targetH / cellSize) * cellSize
+          blockDiv.style.width = targetW + "px"
+          blockDiv.style.height = targetH + "px"
+          // 更新placedBlocks
+          let pb = placedBlocks.find(b => b.el === blockDiv)
+          pb.w = targetW
+          pb.h = targetH
+          // 新增：同步更新gridBlockInfo
+          if (blockDiv.dataset.blockId) {
+            gridBlockInfo[blockDiv.dataset.blockId].w = targetW
+            gridBlockInfo[blockDiv.dataset.blockId].h = targetH
+          }
+        } else {
+          // 直接指定新宽高
+          let targetW = Math.max(cellSize, Math.min(newW, gridPx - left))
+          let targetH = Math.max(cellSize, Math.min(newH, gridPx - top))
+          targetW = Math.round(targetW / cellSize) * cellSize
+          targetH = Math.round(targetH / cellSize) * cellSize
+          blockDiv.style.width = targetW + "px"
+          blockDiv.style.height = targetH + "px"
+          let pb = placedBlocks.find(b => b.el === blockDiv)
+          pb.w = targetW
+          pb.h = targetH
+          // 新增：同步更新gridBlockInfo
+          if (blockDiv.dataset.blockId) {
+            gridBlockInfo[blockDiv.dataset.blockId].w = targetW
+            gridBlockInfo[blockDiv.dataset.blockId].h = targetH
+          }
+        }
+      }
+
+      // 点击空白处取消选中
+      canvas.addEventListener("pointerdown", e => {
+        if (selectedBlock) selectedBlock.classList.remove("selected-block")
+        selectedBlock = null
+      })
+
+      // 检查所有色块是否都已用完
+      function checkAllBlocksPlaced() {
+        const blocks = document.querySelectorAll(".color-blocks .color-block")
+        for (let i = 0; i < blocks.length; i++) {
+          if (blocks[i].style.display !== "none") return false
+        }
+        return true
+      }
+
+      // 标记是否已弹出过生成提示
+      let confirmModalShown = false
+
+      // 修改showConfirmModal和hideConfirmModal
+      function showConfirmModal() {
+        document.getElementById("confirmModal").style.display = "flex"
+        confirmModalShown = true
+      }
+      function hideConfirmModal() {
+        document.getElementById("confirmModal").style.display = "none"
+        confirmModalShown = false
+      }
+
+      // “是”按钮：进入情绪生长
+      document.getElementById("btnYes").onclick = function () {
+        hideConfirmModal()
+        emotionMapLocked = true // 锁定色块
+        enterEmotionGrow()
+        // 隐藏底部按钮
+        document.getElementById("genMapBtnWrap").style.display = "none"
+        document.getElementById("submitWrap").style.display = "block"
+      }
+      // “否”按钮：关闭弹窗，继续编辑
+      document.getElementById("btnNo").onclick = function () {
+        hideConfirmModal()
+        document.getElementById("submitWrap").style.display = "none"
+        document.getElementById("genMapBtnWrap").style.display = "block"
+      }
+
+      // 新增：底部生成情绪地图按钮点击事件
+      document.getElementById("genMapBtn").onclick = function () {
+        emotionMapLocked = true // 锁定色块
+        enterEmotionGrow()
+        document.getElementById("genMapBtnWrap").style.display = "none"
+        document.getElementById("submitWrap").style.display = "block"
+      }
+      // 新增：底部提交点击事件
+      document.getElementById("submitBtn").onclick = function () {
+        document.getElementById("genMapBtnWrap").style.display = "none"
+        console.log("gridBlockInfo :>>>>>>>", gridBlockInfo)
+        xhrReq(gridBlockInfo) // 发送数据到服务器
+      }
+
+      // 情绪生长：只保留色块和边框，虚线彻底消失，色块四边线延伸
+      function enterEmotionGrow() {
+        // 1. 清除所有网格线
+        ctx.clearRect(0, 0, gridPx, gridPx)
+
+        // 2. 只绘制最外层边框线（最粗，浅黑色）
+        ctx.save()
+        // ctx.strokeStyle = "rgba(34,34,34,0.7)"
+        // ctx.lineWidth = 8
+        ctx.strokeRect(0, 0, gridPx, gridPx)
+        ctx.restore()
+
+        // 3. 绘制色块四条边线延伸（浅黑色，粗细与之前一致）
+        placedBlocks.forEach(block => {
+          drawGrowLines(block)
+        })
+      }
+
+      // 绘制色块四边线延伸（浅黑色，遇到色块或最外层边框停止）
+      function drawGrowLines(block) {
+        const { x, y, w, h } = block
+        ctx.save()
+        ctx.strokeStyle = "rgba(0,0,0)"
+        ctx.lineWidth = 3
+
+        // 上
+        let topEnd = y
+        for (let ty = y - cellSize; ty >= 0; ty -= cellSize) {
+          if (hasBlockAt(x, ty, w, cellSize)) break
+          topEnd = ty
+        }
+        ctx.beginPath()
+        ctx.moveTo(x, y)
+        ctx.lineTo(x, topEnd)
+        ctx.moveTo(x + w, y)
+        ctx.lineTo(x + w, topEnd)
+        ctx.stroke()
+
+        // 下
+        let bottomEnd = y + h
+        for (let by = y + h; by < gridPx; by += cellSize) {
+          if (hasBlockAt(x, by, w, cellSize)) break
+          bottomEnd = by + cellSize
+          if (bottomEnd > gridPx) bottomEnd = gridPx
+        }
+        ctx.beginPath()
+        ctx.moveTo(x, y + h)
+        ctx.lineTo(x, bottomEnd)
+        ctx.moveTo(x + w, y + h)
+        ctx.lineTo(x + w, bottomEnd)
+        ctx.stroke()
+
+        // 左
+        let leftEnd = x
+        for (let lx = x - cellSize; lx >= 0; lx -= cellSize) {
+          if (hasBlockAt(lx, y, cellSize, h)) break
+          leftEnd = lx
+        }
+        ctx.beginPath()
+        ctx.moveTo(x, y)
+        ctx.lineTo(leftEnd, y)
+        ctx.moveTo(x, y + h)
+        ctx.lineTo(leftEnd, y + h)
+        ctx.stroke()
+
+        // 右
+        let rightEnd = x + w
+        for (let rx = x + w; rx < gridPx; rx += cellSize) {
+          if (hasBlockAt(rx, y, cellSize, h)) break
+          rightEnd = rx + cellSize
+          if (rightEnd > gridPx) rightEnd = gridPx
+        }
+        ctx.beginPath()
+        ctx.moveTo(x + w, y)
+        ctx.lineTo(rightEnd, y)
+        ctx.moveTo(x + w, y + h)
+        ctx.lineTo(rightEnd, y + h)
+        ctx.stroke()
+
+        ctx.restore()
+      }
+
+      // 判断指定区域是否有色块（用于延伸遇到色块停止）
+      function hasBlockAt(x, y, w, h) {
+        for (let b of placedBlocks) {
+          if (x + w > b.x && x < b.x + b.w && y + h > b.y && y < b.y + b.h)
+            return true
+        }
+        // 判断是否超出边界
+        if (x < 0 || y < 0 || x + w > gridPx || y + h > gridPx) return true
+        return false
+      }
+
+      // 生成年月日时分秒格式的blockId
+      function generateBlockId() {
+        const now = new Date()
+        const pad = n => n.toString().padStart(2, "0")
+        return (
+          now.getFullYear() +
+          pad(now.getMonth() + 1) +
+          pad(now.getDate()) +
+          pad(now.getHours()) +
+          pad(now.getMinutes()) +
+          pad(now.getSeconds()) +
+          "_" +
+          Math.floor(Math.random() * 10000)
+        )
+      }
+      function xhrReq(data) {
+        const response = axios
+          .post("http://192.168.25.12:12356/api/data", JSON.stringify(data), {
+            headers: {
+              "Content-Type": "application/json;charset=UTF-8",
+            },
+          })
+          .then(res => {
+            console.log("res :>>>>>>>", res)
+            document.getElementById("submitWrap").style.display = "none"
+            location.href = "index.html"
+          })
+          .catch(err => {
+            // submitWrap
+            document.getElementById("submitWrap").style.display = "block"
+            console.error("数据发送失败:", err)
+            alert("数据发送失败，请稍后再试。")
+          })
+      }
+    </script>
+  </body>
+</html>

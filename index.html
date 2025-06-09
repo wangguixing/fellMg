@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+  <head>
+    <meta charset="UTF-8" />
+    <title>情绪地图主页</title>
+    <style>
+      body {
+        font-family: unset;
+        height: 100vh;
+        text-align: center;
+        margin-top: 80px;
+        background: url("./assets/bg.png") no-repeat;
+        background-size: cover;
+        overflow: hidden;
+      }
+      .btn {
+        cursor: pointer;
+      }
+      .right,.left{
+        width: 50vw;
+        height: calc(100vh - 80px);
+      }
+      #modal {
+        display: none;
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.3);
+        justify-content: center;
+        align-items: center;
+      }
+      #modalContent {
+        background: #fff;
+        padding: 40px 30px;
+        border-radius: 10px;
+        width: 350px;
+        position: relative;
+      }
+      #closeModal {
+        position: absolute;
+        right: 15px;
+        top: 15px;
+        cursor: pointer;
+        font-size: 1.2em;
+      }
+    </style>
+  </head>
+  <body>
+    <div style="display: flex;">
+      <div class="btn left" onclick="showModal()"></div>
+      <div class="btn right"  onclick="location.href='step2.html'"></di>
+    </div>
+
+    <div id="modal">
+      <div id="modalContent">
+        <span id="closeModal" onclick="hideModal()">&#8592; 返回主页</span>
+        <h2>操作说明</h2>
+        <ol style="text-align: left">
+          <li>点击“情绪地图”进入操作界面。</li>
+          <li>长按并拖动下方色块到网格中，双击可放大色块。</li>
+          <li>全部色块放置后，生成情绪地图。</li>
+        </ol>
+      </div>
+    </div>
+    <script>
+      function showModal() {
+        document.getElementById("modal").style.display = "flex"
+      }
+      function hideModal() {
+        document.getElementById("modal").style.display = "none"
+      }
+    </script>
+  </body>
+</html>
