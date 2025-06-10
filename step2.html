@@ -3,16 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <title>情绪地图操作</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=0.8" />
     <style>
       body {
         font-family: unset;
         text-align: center;
         touch-action: none;
-        margin-top: 30px;
         padding-top: 100px;
-        background: url("./assets/2ndBg.png") no-repeat;
+        height: 100vh;
+        margin-left: -2px;
+        /* width: 100vw; */
+        background: url("./assets/2ndBg.png") repeat-x;
         background-size: cover;
-        overflow: hidden;
       }
       #gridContainer {
         display: inline-block;
@@ -86,7 +89,7 @@
         display: none;
         position: fixed;
         left: 0;
-        top: 0;
+        top: 200px;
         width: 100vw;
         height: 100vh;
         background: rgba(0, 0, 0, 0.3);
@@ -820,11 +823,15 @@
       }
       function xhrReq(data) {
         const response = axios
-          .post("http://192.168.25.12:12356/api/data", JSON.stringify(data), {
-            headers: {
-              "Content-Type": "application/json;charset=UTF-8",
-            },
-          })
+          .post(
+            "https://f557-1-192-61-204.ngrok-free.app/api/data",
+            JSON.stringify(data),
+            {
+              headers: {
+                "Content-Type": "application/json;charset=UTF-8",
+              },
+            }
+          )
           .then(res => {
             console.log("res :>>>>>>>", res)
             document.getElementById("submitWrap").style.display = "none"
